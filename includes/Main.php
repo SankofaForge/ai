@@ -20,7 +20,9 @@ use WordPress\AI\Abilities\Utilities\Posts;
 use WordPress\AI\Admin\Activation;
 use WordPress\AI\Admin\Dashboard\Dashboard_Widgets;
 use WordPress\AI\Admin\Deactivation;
+use WordPress\AI\Admin\Site_Health;
 use WordPress\AI\Admin\Upgrades;
+use WordPress\AI\CLI\Embeddings_Command;
 use WordPress\AI\Experiments\Experiments;
 use WordPress\AI\Features\Loader;
 use WordPress\AI\Features\Registry;
@@ -134,16 +136,30 @@ final class Main {
 				( new Dashboard_Widgets( $registry ) )->init();
 			}
 
-			// Register our post-related WordPress Abilities.
-			( new Posts() )->register();
-
-			// Expose curated core objects to the Abilities API, then register the
+			// Register Site Health integration. The `debug_information` and
+			// `site_status_tests` filters are only ever consumed from admin
+			// screens, the Site Health REST endpoints (which power the async
+			// status checks in wp-admin/site-health.php), and the weekly
+			// WP-Cron health-check email — never on the public front end.
+			if ( is_admin() || wp_doing_cron() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
+				( new Site_Health() )->init();
+			}
+      
+      // Expose curated core objects to the Abilities API, then register the
 			// core abilities (overriding any core-provided copies).
+      ( new Posts() )->register();
 			( new Show_In_Abilities() )->register();
 			( new Nav_Menus_Ability() )->init();
 			( new Settings_Ability() )->init();
 			( new Users_Ability() )->init();
 			( new Content_Ability() )->init();
+
+			// Register any needed global WP-CLI commands.
+			if ( ! defined( 'WP_CLI' ) || ! \WP_CLI ) {
+				return;
+			}
+      
+			\WP_CLI::add_command( 'ai embeddings', Embeddings_Command::class );
 		} catch ( \Throwable $e ) {
 			_doing_it_wrong(
 				__METHOD__,
