@@ -34,6 +34,8 @@ class Nav_MenusTest extends WP_UnitTestCase {
 	public function setUp(): void {
 		parent::setUp();
 
+		$this->ensure_ability_category();
+
 		register_nav_menu( 'primary', 'Primary Menu' );
 
 		$this->menu_id = (int) wp_create_nav_menu( 'Test Menu' );
@@ -50,6 +52,25 @@ class Nav_MenusTest extends WP_UnitTestCase {
 		);
 
 		set_theme_mod( 'nav_menu_locations', array( 'primary' => $this->menu_id ) );
+	}
+
+	/**
+	 * Makes sure the navigation category exists before the tests register its ability.
+	 *
+	 * @since x.x.x
+	 */
+	private function ensure_ability_category(): void {
+		if ( wp_has_ability_category( 'navigation' ) ) {
+			return;
+		}
+
+		global $wp_current_filter;
+		$wp_current_filter[] = 'wp_abilities_api_categories_init'; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- Faking the action context to register within it.
+		try {
+			( new Nav_Menus() )->register_category();
+		} finally {
+			array_pop( $wp_current_filter );
+		}
 	}
 
 	/**
