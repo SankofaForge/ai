@@ -300,4 +300,117 @@ class Nav_MenusTest extends WP_UnitTestCase {
 		$this->assertWPError( $result );
 		$this->assertSame( 'ability_invalid_permissions', $result->get_error_code() );
 	}
+
+	/**
+	 * Schema-valid object input behaves like its array form.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_core_read_nav_menus_accepts_object_input(): void {
+		$this->become_admin();
+		$this->register_ability();
+
+		$result = wp_get_ability( 'core/read-nav-menus' )->execute(
+			(object) array(
+				'id' => $this->menu_id,
+			)
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $this->menu_id, $result['id'] );
+	}
+
+	/**
+	 * Non-array and non-object inputs fall back to default collection queries.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_core_read_nav_menus_handles_non_array_input(): void {
+		$this->become_admin();
+		$this->register_ability();
+
+		$nav_menus = new Nav_Menus();
+		$result    = $nav_menus->execute_get_nav_menus( null );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'menus', $result );
+	}
+
+	/**
+	 * Non-WP_Term elements returned by wp_get_nav_menus are skipped in collection queries.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_core_read_nav_menus_skips_non_term_elements_in_collection(): void {
+		$this->become_admin();
+		$this->register_ability();
+
+		$filter = static function ( $menus ) {
+			return array_merge( (array) $menus, array( false ) );
+		};
+		add_filter( 'wp_get_nav_menus', $filter );
+
+		try {
+			$result = wp_get_ability( 'core/read-nav-menus' )->execute( array() );
+		} finally {
+			remove_filter( 'wp_get_nav_menus', $filter );
+		}
+
+		$this->assertCount( 1, $result['menus'] );
+		$this->assertSame( $this->menu_id, $result['menus'][0]['id'] );
+	}
+
+	/**
+	 * Registered theme locations with no assigned menu (ID 0) are omitted from assignments.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_core_read_nav_menus_omits_unassigned_locations_from_assignments(): void {
+		register_nav_menu( 'footer', 'Footer Menu' );
+		set_theme_mod(
+			'nav_menu_locations',
+			array(
+				'primary' => $this->menu_id,
+				'footer'  => 0,
+			)
+		);
+
+		$this->become_admin();
+		$this->register_ability();
+
+		$result = wp_get_ability( 'core/read-nav-menus' )->execute( array() );
+
+		$this->assertTrue( property_exists( $result['location_assignments'], 'primary' ) );
+		$this->assertSame( $this->menu_id, $result['location_assignments']->primary );
+		$this->assertFalse( property_exists( $result['location_assignments'], 'footer' ) );
+	}
+
+	/**
+	 * Menu locations assigned to a different menu are skipped when resolving menu locations.
+	 *
+	 * @since x.x.x
+	 */
+	public function test_core_read_nav_menus_filters_out_other_menu_locations(): void {
+		register_nav_menu( 'footer', 'Footer Menu' );
+		$second_menu_id = (int) wp_create_nav_menu( 'Second Menu' );
+
+		set_theme_mod(
+			'nav_menu_locations',
+			array(
+				'primary' => $this->menu_id,
+				'footer'  => $second_menu_id,
+			)
+		);
+
+		$this->become_admin();
+		$this->register_ability();
+
+		try {
+			$result = wp_get_ability( 'core/read-nav-menus' )->execute( array( 'id' => $this->menu_id ) );
+
+			$this->assertSame( array( 'primary' ), $result['locations'] );
+		} finally {
+			wp_delete_nav_menu( $second_menu_id );
+		}
+	}
 }
